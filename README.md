@@ -3,7 +3,7 @@ An boot loader for my own qianOS writen by GNU assembly language
 
 Tool Chain
 MinGW64        #Since I often work in Win enviroment, so MinGW64 is a better choise
-imagefs.exe    #A tool suject for raw write floppy disk IMG file
+imagefs.exe    #A tool subject for raw write floppy disk IMG file
 Bochs          #Emulator of x86, debug step by step
 
 2023 - 09 - 15
@@ -18,7 +18,7 @@ log
 
 3. GDT中CODE段基址需和Loader加载地址一致（此处设置的是0x10000），DATA段基址从零开始（主要原因是设置内存分页时，用的绝对物理地址）
 
-4. 使用变量时，默认段寄存器是DS；需要注意检查DS的值是否正确。
+4. 使用变量相对寻址时，默认段寄存器是DS；需要注意检查DS的值是否正确。
 5. 使用绝对地址时，注意检查匹配的段寄存器地址是否已设置为0x00； 例如：
     xor %ax, %ax
     mov %ax, %es
