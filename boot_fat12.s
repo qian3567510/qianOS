@@ -45,19 +45,9 @@ _entry:
 	mov $0x184F,%dx 					# Bottom right: (80,50) 
 	int $0x10 							# BIOS int 10h, ah=6: Initialize/Clear screen 
 
-	# Display "Booting**" 
-	mov	$0x1301, %ax
-	mov	$0x000F, %bx
-	mov	$0x0000, %dx
-	mov	$10, %cx
-	push %ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$StartBootMessage, %bp
-	int	$0x10
+	# Display "Start Boot" 
 	# 用宏写，更直观易懂
-	#mWriteString StartBootMessage
+	mDisplayInfo StartBootMessage, $10, $0x0100  # dh=1,Row 1; dh=0,Col 0;
 
 	# Reset floppy */
 	xor %ah,%ah
@@ -121,19 +111,7 @@ _GoNextSectorInRootDir:					#指向下一个扇区，读入此扇区继续比对
 
 	# Not found LOADER.BIN in root dir. 在遍历14个扇区后
 _NoLoaderBinFile:
-	mov	$0x1301, %ax
-	mov	$0x008C, %bx
-	mov	$0x0100, %dx
-	mov	$21, %cx
-	push %ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$NoLoaderMessage, %bp
-	int	$0x10
-
-	# 用宏写，更直观易懂
-	#mWriteString NoLoaderMessage
+	mDisplayWarn NoLoaderMessage, $21, $0x0200		# dh=2,Row 2; dh=0, Col 0;
 
 	jmp . 								# Infinite loop 
 

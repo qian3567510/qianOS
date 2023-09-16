@@ -9,8 +9,8 @@ _start:
 
 /*Const Values Table*/
 .equ LOADERSEG, 0x10000
-.set DATASEG, 0x1000
-
+.set DATASEG, 0x1000				# DATA DS段地址，同CS段；在使用相对地址寻址时（例如变量名），DS=CS
+									# 在使用绝对地址寻址时，需要将DS等段寄存器（例如ES）修改为0
 .equ BaseOfKernelFile, 0x0000 				
 .equ OffsetOfKernelFile, 0x100000
 
@@ -30,7 +30,7 @@ wRootDirSizeForLoop: .word  RootDirSectors	#14个扇区
 wSectorNo: .word 0 						# Current sector number to read 
 
 /*Display Messages Table*/
-StartLoaderMessage:	.ascii   "Start myLoader<<<||>>>"
+StartLoaderMessage:	.ascii   "Start myLoader........"
 NoLoaderMessage:	.ascii	"ERROR:No KERNEL Found"
 KernelFileName:		.ascii	"KERNEL  BIN"
 StartGetMemStructMessage:	.ascii	"Start Get Memory Struct (address,size,type)."
@@ -129,7 +129,8 @@ _init:
     mov %ax,%gs:((80*0+39)*2)
 
     #Display on Screen...
-	#mWriteString StartLoaderMessage
+	mDisplayInfo StartLoaderMessage, $22, $0x0200		# dh=2,Row 2; dh=0,Col 0; 
+	/*
 	mov $0x1301, %ax
 	mov $0x000F, %bx
 	mov $22, %cx					#StartLoaderMessage的长度为22（十进制）
@@ -144,6 +145,7 @@ _init:
 	
 	mov $StartLoaderMessage, %bp	#09/14 证实bp的默认段寄存器是ES，所以前面需要将ES=DS=CS
 	int $0x10
+	*/
 
     /* Initialize 32-bits code segment descriptor. */
 	/**
@@ -202,12 +204,12 @@ _init:
 *   否则将会导致跳转异常。
 *   所以在开启保护模式后，又立即关闭保护模式；检验FS段寄存器是否已被修改。
 */
-    #Reset Floppy
+    # Reset Floppy
 	xor %ah, %ah
 	xor %dl, %dl
 	int $13
 
-	#Serarch for kernel.bin
+	# Serarch for kernel.bin
 	movw $SecNoOfRootDir, (wSectorNo)	#目录区从第19扇区开始
 	movw $RootDirSectors, (wRootDirSizeForLoop)		#需遍历14个扇区
 
@@ -264,7 +266,8 @@ _GoNextSectorInRootDir:					#指向下一个扇区
 
 	# Not found KERNEL.BIN in root dir. 
 _NoLoaderBinFile:
-	
+	mDisplayWarn NoLoaderMessage, $21, $0x0300	# dh=3,Row 3; dh=0,Col 0; 
+	/**
 	mov	$0x1301, %ax
 	mov	$0x008C, %bx
 	mov	$0x0300, %dx
@@ -275,6 +278,7 @@ _NoLoaderBinFile:
 	pop	%ax
 	mov	$NoLoaderMessage, %bp
 	int	$0x10
+	*/
 
 	jmp . 								# Infinite loop 
 
@@ -284,7 +288,7 @@ _FileFound:
 	and $0xFFE0,%di 					# Start of current entry, 32 bytes per entry 
 	add $0x1A,%di 						# 将DI偏移26个字节，指向FAT表中的起始簇号 
 	movw %es:(%di),%cx					# 将起始簇号（指向的是扇区号）存储在CX
-	push %cx 							# Save index of this sector in FAT 缓存簇号，11行之后GetFATEntry作为入参
+	push %cx 							# Save index of this sector in FAT 缓存簇号，之后GetFATEntry作为入参
 	add %ax,%cx							# 偏移14个扇区
 	add $DeltaSecNo,%cx 				# 再偏移17个扇区，将KERNEL.BIN's start sector saved in %cl
 	mov $BaseTmpOfKernelFile,%eax
@@ -292,12 +296,12 @@ _FileFound:
 	mov $OffsetTmpOfKernelFile,%bx 		# %bx <- OffsetTmpOfKernelFile ES:BX Kernel.bin been loaded
 	mov %cx,%ax 						# %ax <- Sector number AX中为逻辑扇区号
 
-	# Load KERNEL.BIN's sector's to memory. #每加载一个扇区，打印一个+到屏幕
+	# Load KERNEL.BIN's sector's to memory. #每加载一个扇区，打印一个>到屏幕
 _LoadingFile:
 	push %ax
 	push %bx
 	mov $0x0E,%ah
-	mov $'+',%al 						# Char to print 
+	mov $'>',%al 						# Char to print 
 	mov $0x0F,%bl 						# Front color: white 
 	int $0x10 							# BIOS int 10h, ah=0xe: Print char 
 	pop %bx
@@ -307,8 +311,9 @@ _LoadingFile:
 	call ReadSector						#读入簇号所指代的扇区，在AX
 	pop %ax 							#从堆栈中取出缓存的起始簇号（来自11行前代码），用作GetFATEntry的入参
 
+	# Move Kernel.bin to High address
 	push %cx
-	push %eax
+	push %eax							# 起始簇号（来自前序的puch %cs，后续的push %ax），用作GetFATEntry的入参
 	push %fs
 	push %edi
 	push %ds
@@ -316,10 +321,10 @@ _LoadingFile:
 
 	mov $0x0200, %cx
 	mov $BaseOfKernelFile, %ax
-	mov %ax, %fs
-	mov (OffsetOfKernelFileCount), %edi	# OffsetOfKernelFileCount 是个临时变量，保存了内存转移过程中的地址
+	mov %ax, %fs						# FS段寄存器，之前通过特别手法获得了4G内存寻址能力
+	mov (OffsetOfKernelFileCount), %edi	# OffsetOfKernelFileCount 是个临时变量，保存了内存转移过程中的目标地址
 	mov $BaseTmpOfKernelFile, %ax
-	mov %ax, %ds
+	mov %ax, %ds						# 因需要使用绝对内存地址，对DS段寄存器清零
 	mov $OffsetTmpOfKernelFile, %esi
 
 _MovKernel:
@@ -328,14 +333,12 @@ _MovKernel:
 
 	inc %esi
 	inc %edi
-	loop _MovKernel
+	loop _MovKernel						# 循环次数CX = 0x0200，512
 
 	#mov $0x1000, %eax					#将ds指向 0x1000的作用是什么？ 待分析！20220419；原版有 org 10000，所以DS段可以从0x1000开始
 	#mov $0x0E00, %eax					#这样赋值也能调用到4-1的最简内核，但跳转到kernel后还是有报错
-	#mov $0x0000, %eax					# DS段从0开始，验证一下这样是否能够正确的完成bin的加载 20220420
-										# 0420的验证，说明需要将DS设置为0，这样才能确保OffsetOfKernelFileCount变量的正确！
-    mov $DATASEG, %eax					# 换成这个写法，便于理解；涉及到绝对地址操作，DS要设为0.									
-	mov %eax, %ds
+	mov $DATASEG, %eax					# 换成这个写法，便于理解；涉及到相对地址寻址操作，DS要设为CS.									
+	mov %eax, %ds						#                       相对地址寻址-> 给OffsetKerFileCount赋值
 	mov %edi, (OffsetOfKernelFileCount)	#保存edi的偏移值到OffsetOfKernelFileCount变量中
 
 	pop %esi
@@ -343,18 +346,18 @@ _MovKernel:
 	pop %edi
 	pop %fs
 	pop %eax
-	pop %cx	
+	pop %cx
+	# Move Kernel.bin complete.	
 
 	call GetFATEntry
 	cmp $0x0FFF,%ax						# Is the last cluster?
 	jz _FileLoaded
 	push %ax 							# Save index of this sector in FAT 
 	mov $RootDirSectors,%dx
-	add %dx,%ax							# %ax指向的簇好，偏移14个扇区
+	add %dx,%ax							# %ax指向的簇号，偏移14个扇区
 	add $DeltaSecNo,%ax					# 再偏移17个扇区，指向kernel.bin的下一个数据扇区
-	#add (BPB_BytsPerSec),%bx			#偏移512字节，预备读入下一个扇区  与加载Loader.bin不同，这一偏移注释掉了。?
-										#去掉这个注释之后，居然能进入kernel，但是有些差异！在lidt之后的mov ax, ds报错了！
-										# 0420的验证证明，这一个确实需要注释掉。
+	#add (BPB_BytsPerSec),%bx			# 与加载Loader.bin不同，kernel.bin每次读入后即转移到搞地址区域
+										# 所以每次都是固定读到OffsetTmpOfKernelFile指向的地址
 	jmp _LoadingFile
 
 _FileLoaded:	
@@ -368,24 +371,15 @@ _FileLoaded:
 	#0x0F，表示白色字体，黑色背景
 	mov %ax, %gs:((80*0+39)*2)		#mov [gs:((80*0 + 39)*2)], ax  NASM语法
 
-	#Kill Motor
+	# Kill Motor
 	push %dx
 	mov $0x03F2, %dx
 	mov $0, %al
 	out %al, %dx
 	pop %dx
 	
-#Get memory address size type
-	mov $0x1301, %ax
-	mov	$0x000F, %bx
-	mov	$0x0400, %dx					#row 4
-	mov	$44, %cx
-	push %ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$StartGetMemStructMessage, %bp
-	int	$0x10
+	#Get memory address size type
+	mDisplayInfo StartGetMemStructMessage, $44, $0x0400  # dh=4,Row 4; dh=0,Col 0;
 
 	mov	$0, %ebx
 	mov	$0, %ax
@@ -393,7 +387,6 @@ _FileLoaded:
 	mov	$MemoryStructBufferAddr, %di		# 绝对地址，ES清零，ES:DI
 
 Label_Get_Mem_Struct:
-
 	mov	$0x0E820, %eax
 	mov	$20, %ecx
 	mov	$0x534D4150, %edx
@@ -407,99 +400,34 @@ Label_Get_Mem_Struct:
 	jmp	Label_Get_Mem_OK
 
 Label_Get_Mem_Fail:
-
 	movl $0,(MemStructNumber)
-
-	mov	$0x1301, %ax
-	mov	$0x008C, %bx
-	mov	$0x0500, %dx					#row 5
-	mov	$23, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$GetMemStructErrMessage, %bp
-	int	$0x10
+	mDisplayWarn GetMemStructErrMessage, $23, $0x0500  # dh=5,Row 5; dh=0,Col 0;
 
 Label_Get_Mem_OK:
-	
-	mov	$0x1301, %ax
-	mov	$0x000F, %bx
-	mov	$0x0600, %dx					#row 6
-	mov	$29, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$GetMemStructOKMessage, %bp
-	int	$0x10
+	mDisplayInfo GetMemStructOKMessage, $29, $0x0600  # dh=6,Row 6; dh=0,Col 0;
 
 #=======	get SVGA information
-
-	mov	$0x1301, %ax
-	mov	$0x000F, %bx
-	mov	$0x0800, %dx					#row 8
-	mov	$23, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$StartGetSVGAVBEInfoMessage, %bp
-	int	$0x10
+	mDisplayInfo StartGetSVGAVBEInfoMessage, $23, $0x0800  # dh=8,Row 8; dh=0,Col 0;
 
 	mov	$0x00, %ax
 	mov	%ax, %es
 	mov	$0x8000, %di
 	mov	$0x4F00, %ax
-
 	int	$0x10
 
 	cmp	$0x004F, %ax
-	#调试发现 ax的值为0x014F，代表操作失败！
-	#2023/09/13 似乎是偶然的！
 
 	jz	.KO
 	
 #=======	Fail
-
-	mov	$0x1301, %ax
-	mov	$0x008C, %bx
-	mov	$0x0900, %dx						#row 9
-	mov	$23, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$GetSVGAVBEInfoErrMessage, %bp
-	int	$0x10
-
+	mDisplayWarn GetSVGAVBEInfoErrMessage, $23, $0x0900  # dh=9,Row 9; dh=0,Col 0;
 	jmp	.
 
 .KO:
-
-	mov	$0x1301, %ax
-	mov	$0x000F, %bx
-	mov	$0x0A00, %dx						#row 10
-	mov	$29, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$GetSVGAVBEInfoOKMessage, %bp
-	int	$0x10
+	mDisplayInfo GetSVGAVBEInfoOKMessage, $29, $0x0A00  # dh=0A,Row 10; dh=0,Col 0;
 
 #=======	Get SVGA Mode Info
-
-	mov	$0x1301, %ax
-	mov	$0x000F, %bx
-	mov	$0x0C00, %dx						#row 12
-	mov	$24, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$StartGetSVGAModeInfoMessage, %bp
-	int	$0x10
+	mDisplayInfo StartGetSVGAModeInfoMessage, $24, $0x0C00  # dh=0C,Row 12; dh=0,Col 0;
 
 	mov	$0x00, %ax
 	mov	%ax, %es
@@ -509,7 +437,6 @@ Label_Get_Mem_OK:
 	mov	$0x8200, %edi
 
 Label_SVGA_Mode_Info_Get:
-
 	mov %es:(%esi), %cx
 
 #=======	display SVGA mode information
@@ -549,36 +476,14 @@ Label_SVGA_Mode_Info_Get:
 	jmp	Label_SVGA_Mode_Info_Get
 		
 Label_SVGA_Mode_Info_FAIL:
-
-	mov	$0x1301, %ax
-	mov	$0x008C, %bx
-	mov	$0x0D00, %dx						#row 13
-	mov	$24, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$GetSVGAModeInfoErrMessage, %bp
-	int	$0x10
+	mDisplayWarn GetSVGAModeInfoErrMessage, $24, $0x0D00  # dh=0D,Row 13; dh=0,Col 0;
 
 Label_SET_SVGA_Mode_VESA_VBE_FAIL:
-
 	jmp	.
 
 Label_SVGA_Mode_Info_Finish:
-	mov	$0x1301, %ax
-	mov	$0x000F, %bx
-	mov	$0x0E00, %dx						#row 14
-	mov	$30, %cx
-	push	%ax
-	mov	%ds, %ax
-	mov	%ax, %es
-	pop	%ax
-	mov	$GetSVGAModeInfoOKMessage, %bp
-	int	$0x10
-
-	# 暂时停在此处，观察输出
-	#jmp .		
+	mDisplayInfo GetSVGAModeInfoOKMessage, $30, $0x0E00  # dh=0E,Row 14; dh=0,Col 0;
+	
 #=======	set the SVGA mode(VESA VBE)
 /*********************************************************
     对于超级VGA显示卡，我们可用AX＝4F02H和下列BX的值来设置其显示模式。
@@ -782,6 +687,7 @@ DisplayPosition: .long 0
 	#ljmp $SelectorCode32, $0x10000 + $LABEL_SEG_CODE32	#2023/09/04 验证无效
 	#ljmp $SelectorCode32, $LABEL_SEG_CODE32				#尝试设置好段基址为0x10000，有效
 
+# 测试代码
 .section .text
 LABEL_SEG_CODE32: 
 .code32
