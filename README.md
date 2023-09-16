@@ -1,6 +1,11 @@
 # qianOS
 An boot loader for my own qianOS writen by GNU assembly language
 
+Tool Chain
+MinGW64        #Since I often work in Win enviroment, so MinGW64 is a better choise
+imagefs.exe    #A tool suject for raw write floppy disk IMG file
+Bochs          #Emulator of x86, debug step by step
+
 2023 - 09 - 15
 
 log
