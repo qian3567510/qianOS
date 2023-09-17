@@ -67,4 +67,4 @@ GDT[0x0028]=LDT
 
 #LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_C + DA_32)
 LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_CR + DA_32)
-需要将定义修改为DA_CR，这样CODE/DATA段才能混用。
+需要将定义修改为DA_CR，这样CODE/DATA段才能混用!
