@@ -1,14 +1,17 @@
-# qianOS
-An boot loader for my own qianOS writen by GNU assembly language
+# Welcome to qianOS
+An boot loader for my own qianOS written by GNU assembly language.
 
 Tool Chain
-MinGW64        #Since I often work in Win enviroment, so MinGW64 is a better choise
-imagefs.exe    #A tool subject for raw write floppy disk IMG file
-Bochs          #Emulator of x86, debug step by step
+
+|             |                                                              |      |
+| :---------- | :----------------------------------------------------------- | ---- |
+| MinGW64     | Since I often work in Win Env., so MinGW64 is a better choise for GNU |      |
+| imagefs.exe | A tool subject to raw write floppy disk IMG file in Win Env. |      |
+| Bochs       | Emulator of x86, debug step by step. Cool!                   |      |
+|             |                                                              |      |
 
 2023 - 09 - 15
 
-log
 1. 参考《田宇-一个64位操作系统的设计与实现》 和 《台湾杨文博-WriteOS GAS语法》，使用GNU Assembly语法重写了boot loader，并加载预先编译好的kernel.bin（功能有限，显示几个色带，打印Hello World）
 
 2. GNU中缺乏类似NASM中org伪指令（据分析其作用应可直接修改各Label、变量的偏移地址；而GNU中各Label实际只代表了相对文件头的偏移地址）
@@ -20,8 +23,8 @@ log
 
 4. 使用变量相对寻址时，默认段寄存器是DS；需要注意检查DS的值是否正确。
 5. 使用绝对地址时，注意检查匹配的段寄存器地址是否已设置为0x00； 例如：
-    xor %ax, %ax
-    mov %ax, %es
+        xor %ax, %ax
+        mov %ax, %es
 
     设置堆栈指向了绝对地址，所以需要将SS段设置为零
 
