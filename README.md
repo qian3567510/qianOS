@@ -32,3 +32,35 @@ Tool Chain
    - GdtPtr64是一个定义在CODE/DATA混杂的段中，其寻址方式实际为DS:GdtPtr64
    - 需要检查DS段的设置是否指向了0x10000,也就是CODE段基址
    - 保护模式下，DS段设置的应是段选择子，所以需要手动mov $0x08, %ds
+
+
+2023/09/17
+
+在尝试手动将GDT CODE指向0x10000, DATA段指向0；试图在后续使用到变量标签之前，再手动将DS段指向到CODE32段，以求获取到正确的偏移地址。
+
+调试过程中发现以下差异：
+LABEL_DESC_CODE32: .long 0x0000FFFF, 0x00CF9A01
+	#段基址 0x00010000  Limit：F FFFF; 004F中的4代表L=1，暂时无意义，9A代表可读可执行代码段		
+	#段基址需要显式定义为和Loader加载的段地址一致，=CS<<4
+LABEL_DESC_DATA32: .long 0x0000FFFF, 0x00CF9200
+
+使用这样的定义，CODE是可执行、可读； 后续也可以将DS段寄存器指向CODE选择子。
+
+<bochs:53> info gdt
+Global Descriptor Table (base=0x0000000000010209, limit=47):
+GDT[0x0000]=??? descriptor hi=0x00000000, lo=0x00000000
+GDT[0x0008]=Code segment, base=0x00010000, limit=0xffffffff, Execute/Read, Non-Conforming, 32-bit
+GDT[0x0010]=Data segment, base=0x00000000, limit=0xffffffff, Read/Write
+GDT[0x0018]=Data segment, base=0x00010288, limit=0x000001ff, Read/Write, Accessed
+GDT[0x0020]=Data segment, base=0x000b8000, limit=0x0000ffff, Read/Write
+GDT[0x0028]=LDT
+
+使用书中定义，code段是ExecuteOnly，所以无法将CODE选择子赋给DS段寄存器。
+<bochs:53> info gdt
+Global Descriptor Table (base=0x0000000000010209, limit=47):
+GDT[0x0000]=??? descriptor hi=0x00000000, lo=0x00000000
+GDT[0x0008]=Code segment, base=0x00010000, limit=0x000fffff, Execute-Only, Non-Conforming, 32-bit
+GDT[0x0010]=Data segment, base=0x00000000, limit=0x000fffff, Read/Write
+GDT[0x0018]=Data segment, base=0x00010288, limit=0x000001ff, Read/Write, Accessed
+GDT[0x0020]=Data segment, base=0x000b8000, limit=0x0000ffff, Read/Write
+GDT[0x0028]=LDT

@@ -48,6 +48,7 @@ GetSVGAModeInfoOKMessage:	.ascii	"Get SVGA Mode Info SUCCESSFUL!"
 .include "fat12.s"
 .include "bootsector.s"
 .include "macros.s" 
+.include "pm.s"
 
 #Global Descriptor Table
 /**
@@ -66,6 +67,7 @@ GetSVGAModeInfoOKMessage:	.ascii	"Get SVGA Mode Info SUCCESSFUL!"
 */
 
 #方式1：GDT简易定义法，示例书籍中一般使用此定义法；要点是CODE段基址要同加载地址=CS段地址
+/**
 LABEL_GDT: .long 0,0
 LABEL_DESC_CODE32: .long 0x0000FFFF, 0x00CF9A01
 	#段基址 0x00010000  Limit：F FFFF; 004F中的4代表L=1，暂时无意义，9A代表可读可执行代码段		
@@ -75,6 +77,7 @@ LABEL_DESC_DATA32: .long 0x0000FFFF, 0x00CF9200
 	#因后续内存页等使用绝对地址定义，所以DATA段基址需要设定为0，不可和CODE段再混淆在一起
 LABEL_DESC_VIDEO:  .long 0x8000FFFF, 0x00CF920B
 	#段基址 0x000B8000，指向显存区域
+*/
 
 #方式2: 宏定义法，优点是直观、易懂；推荐！
 /**
@@ -84,6 +87,32 @@ LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_C + DA_32)
 LABEL_DESC_DATA32:  Descriptor  0x00000,       0xFFFFF, DA_DRW
 LABEL_DESC_VIDEO:   Descriptor  0xB8000,        0xffff, DA_DRW
 */
+/* Global Descriptor Table */
+LABEL_GDT:          Descriptor        0,                  0, 0
+#LABEL_DESC_CODE32:  Descriptor        0, (SegCode32Len - 1), (DA_C + DA_32)
+#LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_C + DA_32)
+LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_CR + DA_32)
+# 此处尝试将CODE段的基址都指向了0x10000，后续运行时不再重新设置基址
+# 这么做的唯一好处是引用变量时，可以直接使用变量名； 注意：变量名/Label名实际都是相对于头部的偏移量
+# 例如jmp时，可以指定具体的跳转标签； 
+# 尝试将DA_C 修改为 DA_CR Execute/Read
+#LABEL_DESC_DATA32:  Descriptor        0,      (DataLen - 1), DA_DRW
+#LABEL_DESC_DATA32:  Descriptor  0x10000,      0xFFFFF, DA_DRW
+LABEL_DESC_DATA32:  Descriptor        0,      0xFFFFF, DA_DRW
+# 此处尝试将DATA的基址也指向了0x10000，后续运行时不再重新设置基址。
+# 这么做的唯一好处是引用变量时，可以直接使用变量名； 注意：变量名/Label名实际都是相对于头部的偏移量
+# 例如显示字符串时，使用字符串变量名（而不是一个Offset）
+#LABEL_DESC_CODE32: .long 0x0000FFFF, 0x00CF9A01
+	#段基址 0x00010000  Limit：F FFFF; 004F中的4代表L=1，暂时无意义，9A代表可读可执行代码段		
+	#段基址需要显式定义为和Loader加载的段地址一致，=CS<<4
+#LABEL_DESC_DATA32: .long 0x0000FFFF, 0x00CF9200
+	#段基址 0x00000000  Limit：F FFFF（5个F）；00CF中的C代表L=1 AVL=1,92代表存在内存中的可读写数据段
+	#因后续内存页等使用绝对地址定义，所以DATA段基址需要设定为0，不可和CODE段再混淆在一起
+
+	#这个定义有效；在后续可以将ds段寄存器切换指向08选择子，也就是CODE32. 09/17
+LABEL_DESC_STACK:   Descriptor        0,         TopOfStack, (DA_DRWA + DA_32)
+LABEL_DESC_VIDEO:   Descriptor  0xB8000,             0xffff, DA_DRW
+LABEL_DESC_LDT:     Descriptor        0,       (LDTLen - 1), DA_LDT
 
 .set GdtLen, (. - LABEL_GDT)	#GDT Length，每一段长度为8 Byte
 
@@ -92,10 +121,34 @@ GdtPtr: .word  (GdtLen - 1)		#GDT Limit
 		#GNU Asm中没有类似org的伪指令，所有LABEL实际是相对于文件头的偏移量，所以需要在运行时重新计算
 		#在lgdt GdpPtr指令中，实际是lgdt DS:GdtPtr，所以需要注意DS的值是否为CS 或 指向CS的选择子
 
-# GDT Segment Selectors
+# GDT Segment Selectors(TI flag clear)
 .set    SelectorCode32, (LABEL_DESC_CODE32 - LABEL_GDT)
-.equ    SelectorData32, (LABEL_DESC_DATA32 - LABEL_GDT)
+.set    SelectorData32, (LABEL_DESC_DATA32   - LABEL_GDT)
+.set    SelectorStack,  (LABEL_DESC_STACK  - LABEL_GDT)
 .set    SelectorVideo,  (LABEL_DESC_VIDEO  - LABEL_GDT)
+.set    SelectorLDT,    (LABEL_DESC_LDT    - LABEL_GDT)
+
+/* LDT segment */
+LABEL_LDT:
+#LABEL_LDT_DESC_CODEA:   Descriptor  0, (CodeALen - 1), (DA_C + DA_32)
+LABEL_LDT_DESC_CODEA:   Descriptor  0x10000, 0xFFFFF, (DA_C + DA_32)
+
+.set    LDTLen, (. - LABEL_LDT) /* LDT Length */
+/* LDT Selector (TI flag set)*/
+.set    SelectorLDTCodeA, (LABEL_LDT_DESC_CODEA - LABEL_LDT + SA_TIL)
+
+/* 32-bit global data segment. */
+LABEL_DATA32:
+PMMessage:   .ascii "Welcome to protect mode! ^-^\0"
+LDTMessage:  .ascii "Aha, you jumped into a LDT segment.\0"
+.set    OffsetPMMessage,  (PMMessage - LABEL_DATA32)
+.set    OffsetLDTMessage, (LDTMessage - LABEL_DATA32)
+.set    DataLen,          (. - LABEL_DATA32)
+
+/* 32-bit global stack segment. */
+LABEL_STACK:
+.space  512, 0
+.set    TopOfStack, (. - LABEL_STACK - 1)
 
 #Section GDT64
 	LABEL_GDT64: .quad 0
@@ -160,6 +213,20 @@ _init:
     movb    %al, (LABEL_DESC_CODE32 + 4)
     movb    %ah, (LABEL_DESC_CODE32 + 7)
 	*/
+	/* Initialize 32-bits code segment descriptor. */
+    #InitDesc LABEL_SEG_CODE32, LABEL_DESC_CODE32
+
+    /* Initialize data segment descriptor. */
+    #InitDesc LABEL_DATA32, LABEL_DESC_DATA32
+
+    /* Initialize stack segment descriptor. */
+    InitDesc LABEL_STACK, LABEL_DESC_STACK
+
+    /* Initialize LDT descriptor in GDT. */
+    InitDesc LABEL_LDT, LABEL_DESC_LDT
+
+    /* Initialize code A descriptor in LDT. */
+    #InitDesc LABEL_CODEA, LABEL_LDT_DESC_CODEA
 
     #Prepared for loading GDTR 
 	#This is the KEY, otherwise will not get the proper address of gdtr
@@ -192,6 +259,14 @@ _init:
 	or $1, %eax
 	mov %eax, %cr0			#通过置位CR0寄存器的第0位开启保护模式
 
+	/*参考Wenbo Yang的资料，进行LDT/IDT的验证*/
+	ljmp $SelectorCode32, $LABEL_SEG_CODE32				#尝试设置好段基址为0x10000，有效
+	#ljmp $SelectorCode32, $0
+
+/** 2023/09/04 在打开保护模式后，应该要立即使用ljmp指令跳转到32位指令码区域。
+*   否则将会导致跳转异常。
+*   所以在开启保护模式后，又立即关闭保护模式；检验FS段寄存器是否已被修改。
+*/
 	mov $SelectorData32, %ax
 	mov %ax, %fs			#为FS段寄存器加载新的数据段，让fs寄存器具备4G内存寻址能力
 	mov %cr0, %eax			#通过复位CR0寄存器的第0位关闭保护模式
@@ -200,10 +275,7 @@ _init:
 
 	sti						#打开外部中断
 
-/** 2023/09/04 在打开保护模式后，应该要立即使用ljmp指令跳转到32位指令码区域。
-*   否则将会导致跳转异常。
-*   所以在开启保护模式后，又立即关闭保护模式；检验FS段寄存器是否已被修改。
-*/
+
     # Reset Floppy
 	xor %ah, %ah
 	xor %dl, %dl
@@ -689,21 +761,76 @@ DisplayPosition: .long 0
 
 # 测试代码
 .section .text
-LABEL_SEG_CODE32: 
 .code32
+/* 32-bit code segment for GDT */
+LABEL_SEG_CODE32: 
+    mov     $(SelectorData32), %ax
+    mov     %ax, %ds                /* Data segment selector */
+    mov     $(SelectorStack), %ax
+    mov     %ax, %ss                /* Stack segment selector */
     mov     $(SelectorVideo), %ax
     mov     %ax, %gs                /* Video segment selector(dest) */
 
-    movl    $((80 * 10 + 0) * 2), %edi
+	mov $(SelectorCode32), %ax		# 将ds指向08选择子，也就是code段
+	mov %ax, %ds					# data 段和 code段混用，为了相对寻址可以找到字符串变量名
+
+    mov     $(TopOfStack), %esp
+
     movb    $0xC, %ah               /* 0000: Black Back 1100: Red Front */
-    movb    $'P', %al
+    xor     %esi, %esi
+    xor     %edi, %edi
+    #movl    $(OffsetPMMessage), %esi
+	movl $PMMessage, %esi
+    movl    $((80 * 10 + 0) * 2), %edi
+    cld                         /* Clear DF flag. */
 
+/* Display a string from %esi(string offset) to %edi(video segment). */
+CODE32.1:
+    lodsb                       /* Load a byte from source */
+    test    %al, %al
+    jz      CODE32.2
     mov     %ax, %gs:(%edi)
+    add     $2, %edi
+    jmp     CODE32.1
+CODE32.2:
 
-    /* Stop here, infinite loop. */
-    jmp     .
+    mov     $(SelectorLDT), %ax
+    lldt    %ax
+    
+	ljmp    $(SelectorLDTCodeA), $LABEL_CODEA
+	#ljmp    $(SelectorLDTCodeA), $0
 
 /* Get the length of 32-bit segment code. */
 .set    SegCode32Len, . - LABEL_SEG_CODE32
+
+/* 32-bit code segment for LDT */
+LABEL_CODEA:
+    mov     $(SelectorVideo), %ax
+    mov     %ax, %gs
+
+    movb    $0xC, %ah               /* 0000: Black Back 1100: Red Front */
+    xor     %esi, %esi
+    xor     %edi, %edi
+    #movl    $(OffsetLDTMessage), %esi
+	movl $LDTMessage, %esi
+    movl    $((80 * 12 + 0) * 2), %edi
+    cld                         /* Clear DF flag. */
+
+/* Display a string from %esi(string offset) to %edi(video segment). */
+CODEA.1:
+    lodsb                       /* Load a byte from source */
+    test    %al, %al
+    jz      CODEA.2
+    mov     %ax, %gs:(%edi)
+    add     $2, %edi
+    jmp     CODEA.1
+CODEA.2:
+
+    /* Stop here, infinite loop. */
+    jmp     .
+.set    CodeALen, (. - LABEL_CODEA)
+
+
+
 
 
