@@ -64,3 +64,7 @@ GDT[0x0010]=Data segment, base=0x00000000, limit=0x000fffff, Read/Write
 GDT[0x0018]=Data segment, base=0x00010288, limit=0x000001ff, Read/Write, Accessed
 GDT[0x0020]=Data segment, base=0x000b8000, limit=0x0000ffff, Read/Write
 GDT[0x0028]=LDT
+
+#LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_C + DA_32)
+LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_CR + DA_32)
+需要将定义修改为DA_CR，这样CODE/DATA段才能混用。
