@@ -1,6 +1,5 @@
 .code16
 .section .text
-
 .globl _start
 
 _start:
@@ -49,6 +48,8 @@ GetSVGAModeInfoOKMessage:	.ascii	"Get SVGA Mode Info SUCCESSFUL!"
 .include "bootsector.s"
 .include "macros.s" 
 .include "pm.s"
+#.include "lib.h"
+
 
 #Global Descriptor Table
 /**
@@ -67,7 +68,6 @@ GetSVGAModeInfoOKMessage:	.ascii	"Get SVGA Mode Info SUCCESSFUL!"
 */
 
 #方式1：GDT简易定义法，示例书籍中一般使用此定义法；要点是CODE段基址要同加载地址=CS段地址
-/**
 LABEL_GDT: .long 0,0
 LABEL_DESC_CODE32: .long 0x0000FFFF, 0x00CF9A01
 	#段基址 0x00010000  Limit：F FFFF; 004F中的4代表L=1，暂时无意义，9A代表可读可执行代码段		
@@ -77,7 +77,6 @@ LABEL_DESC_DATA32: .long 0x0000FFFF, 0x00CF9200
 	#因后续内存页等使用绝对地址定义，所以DATA段基址需要设定为0，不可和CODE段再混淆在一起
 LABEL_DESC_VIDEO:  .long 0x8000FFFF, 0x00CF920B
 	#段基址 0x000B8000，指向显存区域
-*/
 
 #方式2: 宏定义法，优点是直观、易懂；推荐！
 /**
@@ -88,17 +87,19 @@ LABEL_DESC_DATA32:  Descriptor  0x00000,       0xFFFFF, DA_DRW
 LABEL_DESC_VIDEO:   Descriptor  0xB8000,        0xffff, DA_DRW
 */
 /* Global Descriptor Table */
+/**
 LABEL_GDT:          Descriptor        0,                  0, 0
-#LABEL_DESC_CODE32:  Descriptor        0, (SegCode32Len - 1), (DA_C + DA_32)
+#LABEL_DESC_CODE32:  Descriptor        0, (SegCode32Len - 1), (DA_CR + DA_32)
+LABEL_DESC_CODE32:  Descriptor        0, 0xFFFFF, (DA_CR + DA_32)
 #LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_C + DA_32)
-LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_CR + DA_32)
+#LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_CR + DA_32)
 # 此处尝试将CODE段的基址都指向了0x10000，后续运行时不再重新设置基址
 # 这么做的唯一好处是引用变量时，可以直接使用变量名； 注意：变量名/Label名实际都是相对于头部的偏移量
 # 例如jmp时，可以指定具体的跳转标签； 
-# 尝试将DA_C 修改为 DA_CR Execute/Read
-#LABEL_DESC_DATA32:  Descriptor        0,      (DataLen - 1), DA_DRW
+# 尝试将DA_C 修改为 DA_CR Execute/Read；验证发现如果需要将DS手动指向CODE32，必须为DA_CR
+LABEL_DESC_DATA32:  Descriptor        0,      (DataLen - 1), DA_DRW
 #LABEL_DESC_DATA32:  Descriptor  0x10000,      0xFFFFF, DA_DRW
-LABEL_DESC_DATA32:  Descriptor        0,      0xFFFFF, DA_DRW
+#LABEL_DESC_DATA32:  Descriptor        0,      0xFFFFF, DA_DRW
 # 此处尝试将DATA的基址也指向了0x10000，后续运行时不再重新设置基址。
 # 这么做的唯一好处是引用变量时，可以直接使用变量名； 注意：变量名/Label名实际都是相对于头部的偏移量
 # 例如显示字符串时，使用字符串变量名（而不是一个Offset）
@@ -111,8 +112,24 @@ LABEL_DESC_DATA32:  Descriptor        0,      0xFFFFF, DA_DRW
 
 	#这个定义有效；在后续可以将ds段寄存器切换指向08选择子，也就是CODE32. 09/17
 LABEL_DESC_STACK:   Descriptor        0,         TopOfStack, (DA_DRWA + DA_32)
-LABEL_DESC_VIDEO:   Descriptor  0xB8000,             0xffff, DA_DRW
+#LABEL_DESC_VIDEO:   Descriptor  0xB8000,             0xffff, DA_DRW
+# 因为需要在Ring3权限下写屏幕，需要将VIDEO段声明为DPL3；让Ring3代码可使用
+LABEL_DESC_VIDEO:   Descriptor  0xB8000,             0xffff, (DA_DRW + DA_DPL3)
 LABEL_DESC_LDT:     Descriptor        0,       (LDTLen - 1), DA_LDT
+# Call Gate Code Descriptor
+LABEL_DESC_CODECG:  Descriptor        0, (SegCodeCGLen - 1), (DA_C + DA_32)
+# Code of Ring3 DPL Descriptor
+LABEL_DESC_CODER3:  Descriptor        0, (SegCodeR3Len - 1), (DA_C + DA_32 + DA_DPL3)
+LABEL_DESC_STACKR3: Descriptor        0,       TopOfStackR3, (DA_DRWA + DA_32 + DA_DPL3)
+# TSS Descriptor
+LABEL_DESC_TSS:     Descriptor        0,       (TSSLen - 1), DA_386TSS
+# Gates Descriptor
+# 因为需要在Ring3权限下调用Gate，需要将声明修改为DPL3
+LABEL_CG_TEST:      Gate    SelectorCodeCG, 0, 0, (DA_386CGate + DA_DPL3)
+# PDT/PTE
+LABEL_DESC_FLAT_C:  Descriptor        0,            0xfffff, (DA_CR|DA_32|DA_LIMIT_4K)
+LABEL_DESC_FLAT_RW: Descriptor        0,            0xfffff, (DA_DRW|DA_LIMIT_4K)
+*/
 
 .set GdtLen, (. - LABEL_GDT)	#GDT Length，每一段长度为8 Byte
 
@@ -124,31 +141,111 @@ GdtPtr: .word  (GdtLen - 1)		#GDT Limit
 # GDT Segment Selectors(TI flag clear)
 .set    SelectorCode32, (LABEL_DESC_CODE32 - LABEL_GDT)
 .set    SelectorData32, (LABEL_DESC_DATA32   - LABEL_GDT)
-.set    SelectorStack,  (LABEL_DESC_STACK  - LABEL_GDT)
+#.set    SelectorStack,  (LABEL_DESC_STACK  - LABEL_GDT)
 .set    SelectorVideo,  (LABEL_DESC_VIDEO  - LABEL_GDT)
+/**
 .set    SelectorLDT,    (LABEL_DESC_LDT    - LABEL_GDT)
+.set    SelectorCodeCG, (LABEL_DESC_CODECG - LABEL_GDT)
+.set    SelectorCGTest, (LABEL_CG_TEST     - LABEL_GDT)
+.set    SelectorCodeR3, (LABEL_DESC_CODER3 - LABEL_GDT + SA_RPL3)
+.set    SelectorStackR3,(LABEL_DESC_STACKR3- LABEL_GDT + SA_RPL3)
+.set    SelectorTSS,    (LABEL_DESC_TSS - LABEL_GDT)
+.set    SelectorFlatC  ,(LABEL_DESC_FLAT_C - LABEL_GDT)
+.set    SelectorFlatRW ,(LABEL_DESC_FLAT_RW - LABEL_GDT)
+*/
 
-/* LDT segment */
+/**
+# LDT segment 
 LABEL_LDT:
 #LABEL_LDT_DESC_CODEA:   Descriptor  0, (CodeALen - 1), (DA_C + DA_32)
 LABEL_LDT_DESC_CODEA:   Descriptor  0x10000, 0xFFFFF, (DA_C + DA_32)
 
-.set    LDTLen, (. - LABEL_LDT) /* LDT Length */
-/* LDT Selector (TI flag set)*/
+.set    LDTLen, (. - LABEL_LDT) 
+# LDT Selector (TI flag set)
 .set    SelectorLDTCodeA, (LABEL_LDT_DESC_CODEA - LABEL_LDT + SA_TIL)
+*/
 
-/* 32-bit global data segment. */
+/**
+# 32-bit global data segment. 
 LABEL_DATA32:
-PMMessage:   .ascii "Welcome to protect mode! ^-^\0"
-LDTMessage:  .ascii "Aha, you jumped into a LDT segment.\0"
-.set    OffsetPMMessage,  (PMMessage - LABEL_DATA32)
-.set    OffsetLDTMessage, (LDTMessage - LABEL_DATA32)
-.set    DataLen,          (. - LABEL_DATA32)
+_PMMessage:     .ascii "Welcome to protect mode! ^-^\n\0"
+_LDTMessage:    .ascii "Aha, you jumped into a LDT segment.\n\0"
+_ARDSTitle:     .ascii "BaseAddrLo BaseAddrHi LengthLo LengthHi   Type\n\0"
+_RAMSizeMes:    .ascii "RAM Size:\0"
+_LFMes:         .ascii "\n\0"   # Line Feed Message(New line) 
+_AMECount:      .4byte 0        # Address Map Entry Counter 
+_CursorPos:     .4byte (80*2+0)*2  # Screen Cursor position for printing 
+_MemSize:       .4byte 0        # Usable Memory Size 
+_ARDStruct:                     # Address Range Descriptor Structure 
+  _BaseAddrLow:     .4byte 0    # Low 32 bits of base address 
+  _BaseAddrHigh:    .4byte 0    # High 32 bits of base address 
+  _LengthLow:       .4byte 0    # Low 32 bits of length in bytes 
+  _LengthHigh:      .4byte 0    # High 32 bits of length in bytes 
+  _Type:            .4byte 0    # Address type of this range: 0, 1, other 
+_AddrMapBuf:  .space 256, 0      # Address map buffer 
+_PageTableNum:  .4byte  0       # Number of page tables 
 
-/* 32-bit global stack segment. */
+.set    PMMessage,        (_PMMessage - LABEL_DATA32)
+.set    LDTMessage,       (_LDTMessage - LABEL_DATA32)
+.set    ARDSTitle,        (_ARDSTitle - LABEL_DATA32)
+.set    RAMSizeMes,       (_RAMSizeMes - LABEL_DATA32)
+.set    LFMes,            (_LFMes - LABEL_DATA32)
+.set    AMECount,         (_AMECount - LABEL_DATA32)
+.set    CursorPos,        (_CursorPos - LABEL_DATA32)
+.set    MemSize,          (_MemSize - LABEL_DATA32)
+.set    ARDStruct,        (_ARDStruct - LABEL_DATA32)
+  .set  BaseAddrLow,      (_BaseAddrLow - LABEL_DATA32)
+  .set  BaseAddrHigh,     (_BaseAddrHigh - LABEL_DATA32)
+  .set  LengthLow,        (_LengthLow - LABEL_DATA32)
+  .set  LengthHigh,       (_LengthHigh - LABEL_DATA32)
+  .set  Type,             (_Type - LABEL_DATA32)
+.set    AddrMapBuf,       (_AddrMapBuf - LABEL_DATA32)
+.set    PageTableNum,     (_PageTableNum - LABEL_DATA32)
+.set    DataLen,          (. - LABEL_DATA32)
+*/
+/**
+# 32-bit global stack segment. 
+.align 4
 LABEL_STACK:
 .space  512, 0
 .set    TopOfStack, (. - LABEL_STACK - 1)
+
+# 32-bit ring 3 stack segment. 
+LABEL_STACKR3:
+.space  512, 0
+.set    TopOfStackR3, (. - LABEL_STACKR3)
+
+LABEL_TSS:
+    .4byte  0           # Back Link 
+    .4byte  TopOfStack  # ESP0 
+    .4byte  SelectorStack # SS0 
+    .4byte  0           # ESP1 
+    .4byte  0           # SS1 
+    .4byte  0           # ESP2 
+    .4byte  0           # SS2 
+    .4byte  0           # CR3(PDBR) 
+    .4byte  0           # EIP 
+    .4byte  0           # EFLAGS 
+    .4byte  0           # EAX 
+    .4byte  0           # ECX 
+    .4byte  0           # EDX 
+    .4byte  0           # EBX 
+    .4byte  0           # ESP 
+    .4byte  0           # EBP 
+    .4byte  0           # ESI 
+    .4byte  0           # EDI 
+    .4byte  0           # ES 
+    .4byte  0           # CS 
+    .4byte  0           # SS 
+    .4byte  0           # DS 
+    .4byte  0           # FS 
+    .4byte  0           # GS 
+    .4byte  0           # LDT Segment Selector 
+    .2byte  0           # Trap Flag: 1-bit 
+    .2byte  (. - LABEL_TSS + 2)     # I/O Map Base Address 
+    .byte   0xff        # End 
+.set    TSSLen, (. - LABEL_TSS)
+*/
 
 #Section GDT64
 	LABEL_GDT64: .quad 0
@@ -200,6 +297,26 @@ _init:
 	int $0x10
 	*/
 
+	/**
+	# Get System Address Map 
+    xor     %ebx, %ebx             # EBX: Continuation, 0 
+    mov     $(_AddrMapBuf), %di    # ES:DI: Buffer Pointer, _AddrMapBuf 
+	BEGIN.loop:
+    mov     $0xe820, %eax          # EAX: Function code, E820h 
+    mov     $20, %ecx              # ECX: Buffer size, 20 
+    mov     $0x534d4150, %edx      # EDX: Signature 'SMAP' 
+    int     $0x15                  # INT 15h 
+    jc      BEGIN.getAMfail
+    add     $20, %di               # Increase buffer pointer by 20(bytes) 
+    incl    (_AMECount)            # Inc Address Map Entry Counter by 1 
+    cmp     $0, %ebx               # End of Address Map? 
+    jne     BEGIN.loop
+    jmp     BEGIN.getAMok
+	BEGIN.getAMfail:                   # Failed to get system address map 
+    movl    $0, (_AMECount)
+	BEGIN.getAMok:                     # Got system address map
+	*/ 
+
     /* Initialize 32-bits code segment descriptor. */
 	/**
 	* 2023/09/04 
@@ -213,20 +330,35 @@ _init:
     movb    %al, (LABEL_DESC_CODE32 + 4)
     movb    %ah, (LABEL_DESC_CODE32 + 7)
 	*/
-	/* Initialize 32-bits code segment descriptor. */
-    #InitDesc LABEL_SEG_CODE32, LABEL_DESC_CODE32
 
-    /* Initialize data segment descriptor. */
-    #InitDesc LABEL_DATA32, LABEL_DESC_DATA32
+	/**
+	# Initialize 32-bits code segment descriptor. 
+    InitDesc LABEL_SEG_CODE32, LABEL_DESC_CODE32
 
-    /* Initialize stack segment descriptor. */
+    # Initialize data segment descriptor. 
+    InitDesc LABEL_DATA32, LABEL_DESC_DATA32
+
+    # Initialize stack segment descriptor.
     InitDesc LABEL_STACK, LABEL_DESC_STACK
 
-    /* Initialize LDT descriptor in GDT. */
+    # Initialize LDT descriptor in GDT.
     InitDesc LABEL_LDT, LABEL_DESC_LDT
 
-    /* Initialize code A descriptor in LDT. */
-    #InitDesc LABEL_CODEA, LABEL_LDT_DESC_CODEA
+    # Initialize code A descriptor in LDT.
+    InitDesc LABEL_CODEA, LABEL_LDT_DESC_CODEA
+
+    # Initialize call gate dest code segment descriptor.
+    InitDesc LABEL_SEG_CODECG, LABEL_DESC_CODECG
+
+	# Initialize ring 3 stack segment descriptor. 
+    InitDesc LABEL_STACKR3, LABEL_DESC_STACKR3
+
+    # Initialize ring 3 dest code segment descriptor. 
+    InitDesc LABEL_SEG_CODER3, LABEL_DESC_CODER3
+
+	# Initialize TSS segment descriptor. 
+    InitDesc LABEL_TSS, LABEL_DESC_TSS
+	*/
 
     #Prepared for loading GDTR 
 	#This is the KEY, otherwise will not get the proper address of gdtr
@@ -260,8 +392,8 @@ _init:
 	mov %eax, %cr0			#通过置位CR0寄存器的第0位开启保护模式
 
 	/*参考Wenbo Yang的资料，进行LDT/IDT的验证*/
-	ljmp $SelectorCode32, $LABEL_SEG_CODE32				#尝试设置好段基址为0x10000，有效
-	#ljmp $SelectorCode32, $0
+	#ljmp $SelectorCode32, $LABEL_SEG_CODE32				#尝试设置好段基址为0x10000，有效
+	#ljmp $SelectorCode32, $0					# 运行时已精确初始化段基址到指定偏移量
 
 /** 2023/09/04 在打开保护模式后，应该要立即使用ljmp指令跳转到32位指令码区域。
 *   否则将会导致跳转异常。
@@ -760,65 +892,79 @@ DisplayPosition: .long 0
 	#ljmp $SelectorCode32, $LABEL_SEG_CODE32				#尝试设置好段基址为0x10000，有效
 
 # 测试代码
+/**
 .section .text
 .code32
-/* 32-bit code segment for GDT */
+# 32-bit code segment for GDT 
 LABEL_SEG_CODE32: 
-    mov     $(SelectorData32), %ax
-    mov     %ax, %ds                /* Data segment selector */
-    mov     $(SelectorStack), %ax
-    mov     %ax, %ss                /* Stack segment selector */
-    mov     $(SelectorVideo), %ax
-    mov     %ax, %gs                /* Video segment selector(dest) */
+	#call    SetupPaging 
 
-	mov $(SelectorCode32), %ax		# 将ds指向08选择子，也就是code段
-	mov %ax, %ds					# data 段和 code段混用，为了相对寻址可以找到字符串变量名
+    mov     $(SelectorData32), %ax
+    mov     %ax, %ds                # Data segment selector
+	mov     $(SelectorData32), %ax
+    mov     %ax, %es                # ExtData segment selector 
+    mov     $(SelectorStack), %ax
+    mov     %ax, %ss                # Stack segment selector 
+    mov     $(SelectorVideo), %ax
+    mov     %ax, %gs                # Video segment selector(dest) 
+
+	# 如果使用movl $PMMessage, %esi，就需要以下两行代码将ds重指向08
+	#mov $(SelectorCode32), %ax		# 将ds指向08选择子，也就是code段
+	#mov %ax, %ds					# data 段和 code段混用，为了相对寻址可以找到字符串变量名
 
     mov     $(TopOfStack), %esp
 
-    movb    $0xC, %ah               /* 0000: Black Back 1100: Red Front */
-    xor     %esi, %esi
-    xor     %edi, %edi
-    #movl    $(OffsetPMMessage), %esi
-	movl $PMMessage, %esi
-    movl    $((80 * 10 + 0) * 2), %edi
-    cld                         /* Clear DF flag. */
+	push    $(ARDSTitle)           # Display addr range descriptor struct title 
+    call    DispStr
+    add     $4, %esp
+    call    DispAddrMap            # Display system address map 
 
-/* Display a string from %esi(string offset) to %edi(video segment). */
-CODE32.1:
-    lodsb                       /* Load a byte from source */
-    test    %al, %al
-    jz      CODE32.2
-    mov     %ax, %gs:(%edi)
-    add     $2, %edi
-    jmp     CODE32.1
-CODE32.2:
+	# Setup and enable paging
+    #call    SetupPaging
 
+	call VMDemo            
+
+    push    $(PMMessage)
+    call    DispStr
+    add     $4, %esp
+
+ 	# Load TSS to TR register 
+	mov     $(SelectorTSS), %ax    
+    ltr     %ax
+
+	# call Ring3
+	pushl   $(SelectorStackR3)     # Fake call procedure. 
+    pushl   $(TopOfStackR3)
+    pushl   $(SelectorCodeR3)
+    pushl   $0
+    lret                           # return with no call 
+
+CODE32.3:
     mov     $(SelectorLDT), %ax
     lldt    %ax
     
-	ljmp    $(SelectorLDTCodeA), $LABEL_CODEA
-	#ljmp    $(SelectorLDTCodeA), $0
+	#ljmp    $(SelectorLDTCodeA), $LABEL_CODEA
+	ljmp    $(SelectorLDTCodeA), $0
 
-/* Get the length of 32-bit segment code. */
+# Get the length of 32-bit segment code. 
 .set    SegCode32Len, . - LABEL_SEG_CODE32
 
-/* 32-bit code segment for LDT */
+# 32-bit code segment for LDT 
 LABEL_CODEA:
     mov     $(SelectorVideo), %ax
     mov     %ax, %gs
 
-    movb    $0xC, %ah               /* 0000: Black Back 1100: Red Front */
+    movb    $0xC, %ah               # 0000: Black Back 1100: Red Front 
     xor     %esi, %esi
     xor     %edi, %edi
-    #movl    $(OffsetLDTMessage), %esi
-	movl $LDTMessage, %esi
+    movl    $(LDTMessage), %esi
+	#movl $LDTMessage, %esi
     movl    $((80 * 12 + 0) * 2), %edi
-    cld                         /* Clear DF flag. */
+    cld                         # Clear DF flag. 
 
-/* Display a string from %esi(string offset) to %edi(video segment). */
+# Display a string from %esi(string offset) to %edi(video segment). 
 CODEA.1:
-    lodsb                       /* Load a byte from source */
+    lodsb                       # Load a byte from source 
     test    %al, %al
     jz      CODEA.2
     mov     %ax, %gs:(%edi)
@@ -826,11 +972,238 @@ CODEA.1:
     jmp     CODEA.1
 CODEA.2:
 
-    /* Stop here, infinite loop. */
+    # Stop here, infinite loop. 
     jmp     .
 .set    CodeALen, (. - LABEL_CODEA)
 
+# 32-bit code segment for call gate destination segment 
+LABEL_SEG_CODECG:
+    mov     $(SelectorVideo), %ax
+    mov     %ax, %gs
 
+    movl    $((80 * 11 + 0) * 2), %edi  # line 11, column 0 
+    movb    $0xC, %ah               	# 0000: Black Back 1100: Red Front 
+    movb    $'C', %al               	# Print a 'C' 
 
+    mov     %ax, %gs:(%edi)
+    lret
 
+# Get the length of 32-bit call gate destination segment code. 
+.set    SegCodeCGLen, . - LABEL_SEG_CODECG
 
+# 32-bit code segment for running in ring 3. 
+LABEL_SEG_CODER3:
+    mov     $(SelectorVideo), %ax
+    mov     %ax, %gs
+
+    movl    $((80 * 11 + 1) * 2), %edi  # line 11, column 1 
+    movb    $0xC, %ah               	# 0000: Black Back 1100: Red Front 
+    movb    $'3', %al               	# Print a '3' 
+
+    mov     %ax, %gs:(%edi)
+
+	# Call Code Call Gate in Ring3
+	lcall   $(SelectorCGTest), $0
+
+    jmp     .
+
+# Get the length of 32-bit ring 3 segment code. 
+.set    SegCodeR3Len, . - LABEL_SEG_CODER3
+
+.include "lib.h"
+
+SetupPaging:
+# Directly map linear addresses to physical addresses for simplification 
+    # Get usable PDE number from memory size. 
+    xor     %edx, %edx
+    mov     (MemSize), %eax         # Memory Size 
+    mov     $0x400000, %ebx         # Page table size(bytes), 1024*1024*4 
+    div     %ebx                    # temp = MemSize/4M 
+    mov     %eax, %ecx
+    test    %edx, %edx
+    jz      SP.no_remainder
+    inc     %ecx
+SP.no_remainder:
+    mov     %ecx, (PageTableNum)    # number of PDE = ceil(temp) 
+
+    # Directly map linear addresses to physical addresses. 
+    # Init page table directories of PageDir0, %ecx entries. 
+    mov     $(SelectorFlatRW), %ax
+    mov     %ax, %es
+    mov     $(PageDirBase0), %edi
+    xor     %eax, %eax
+    # Set PDE attributes(flags): P: 1, U/S: 1, R/W: 1. 
+    mov     $(PageTblBase0 | PG_P | PG_USU | PG_RWW), %eax
+SP.1:
+    stosl                   # Store %eax to %es:%edi consecutively. 
+    add     $4096, %eax     # Page tables are in sequential format. 
+    loop    SP.1            # %ecx loops. 
+
+    # Init page tables of PageTbl0, (PageTableNum)*1024 pages. 
+    mov     (PageTableNum), %eax # Get saved ecx(number of PDE) 
+    shl     $10, %eax       # Loop counter, pages: 1024*(PageTableNum). 
+    mov     %eax, %ecx
+    mov     $(PageTblBase0), %edi
+    # Set PTE attributes(flags): P:1, U/S: 1， R/W: 1. 
+    mov     $(PG_P | PG_USU | PG_RWW), %eax
+SP.2:
+    stosl                   # Store %eax to %es:%edi consecutively. 
+    add     $4096, %eax     # Pages are in sequential format. 
+    loop    SP.2            # %ecx loops. 
+
+    # Do the same thing for PageDir1 and PageTbl1. 
+
+    # Init page table directories of PageDir1, (PageTableNum) entries. 
+    mov     $(SelectorFlatRW), %ax
+    mov     %ax, %es
+    mov     $(PageDirBase1), %edi
+    xor     %eax, %eax
+    # Set PDE attributes(flags): P: 1, U/S: 1, R/W: 1. 
+    mov     $(PageTblBase1 | PG_P | PG_USU | PG_RWW), %eax
+    mov     (PageTableNum), %ecx
+SP.3:
+    stosl                   # Store %eax to %es:%edi consecutively. 
+    add     $4096, %eax     # Page tables are in sequential format. 
+    loop    SP.3            # %ecx loops. 
+
+    # Init page tables of PageTbl1, (PageTableNum)*1024 pages. 
+    mov     (PageTableNum), %eax # Get saved ecx(number of PDE) 
+    shl     $10, %eax       # Loop counter: 1024*(PageTableNum). 
+    mov     %eax, %ecx
+    mov     $(PageTblBase1), %edi
+    # Set PTE attributes(flags): P:1, U/S: 1， R/W: 1. 
+    mov     $(PG_P | PG_USU | PG_RWW), %eax
+SP.4:
+    stosl                   # Store %eax to %es:%edi consecutively. 
+    add     $4096, %eax     # Pages are in sequential format. 
+    loop    SP.4            # %ecx loops. 
+
+    # Locate and modify the page that includes linear address FuncLinAddr.
+     * Assume memory is larger than 8 MB. 
+    mov    $(FuncLinAddr), %eax
+    shr    $12, %eax        # Get index of PTE which contains FuncLinAddr. 
+    shl    $2, %eax         # PTE size is 4-bytes. 
+    add    $(PageTblBase1), %eax # Get the pointer to that PTE. 
+    # Modify the PTE of the page which contains FuncLinAddr. 
+    movl   $(BarPhyAddr | PG_P | PG_USU | PG_RWW), %es:(%eax)
+
+    # Use PageDirBase0 first. 
+    mov     $(PageDirBase0), %eax
+    mov     %eax, %cr3 # Store base address of page table dir to %cr3. 
+
+    # Enable paging bit in %cr0. 
+    mov     %cr0, %eax
+    or      $0x80000000, %eax
+    mov     %eax, %cr0
+    ret
+
+# Display system address map. 
+DispAddrMap:
+    push    %esi
+    push    %edi
+    push    %ecx
+
+    mov     $(AddrMapBuf), %esi  # int *p = AddrMapBuf;                     
+    mov     (AMECount), %ecx     # for (int i=0; i<AMECount; i++) {         
+DMS.loop:
+    mov     $5, %edx             #   int j = 5;                             
+    mov     $(ARDStruct), %edi   #   int *q = (int *)ARDStruct;             
+DMS.1:
+    push    (%esi)               #   do {                                   
+    call    DispInt              #     printf("%xh", *p);                   
+    pop     %eax
+    stosl                        #     *q++ = *p;                           
+    add     $4, %esi             #     p++;                                 
+    dec     %edx                 #     j--;                                 
+    cmp     $0, %edx
+    jnz     DMS.1                #   } while(j != 0);                       
+    call    DispLF               #   printf("\n");                          
+    cmpl    $1, (Type)           #   if (Type == AddressRangMemory){        
+    jne     DMS.2
+    mov     (BaseAddrLow), %eax  #     if(ARDStruct.BaseAddrLow             
+    add     (LengthLow), %eax    #        + ARDStruct.LengthLow             
+    cmp     (MemSize), %eax      #        > MemSize){                       
+    jb      DMS.2                #       MemSize = BaseAddrLow + LengthLow; 
+    mov     %eax, (MemSize)      #     }                                    
+DMS.2:                           #   }                                      
+    loop    DMS.loop             # }                                        
+
+    call    DispLF               # printf("\n");                            
+    push    $(RAMSizeMes)
+    call    DispStr              # printf("%s", RAMSizeMes);                
+    add     $4, %esp
+
+    pushl   (MemSize)
+    call    DispInt              # printf("%x", MemSize);                   
+    add     $4, %esp
+    call    DispLF               # printf("\n");                            
+
+    pop     %ecx
+    pop     %edi
+    pop     %esi
+    ret
+
+#A demo for call different func located on same virtual address.
+VMDemo:
+    mov     %cs, %ax
+    mov     %ax, %ds            # Set %ds to code segment. 
+    mov     $(SelectorFlatRW), %ax
+    mov     %ax, %es            # Set %es to flat memory segment. 
+
+    pushl   $(FooLen)
+    pushl   $(FooOffset)
+    pushl   $(FooPhyAddr)
+    call    MemCpy              # Copy function foo to FooPhyAddr. 
+    add     $12, %esp
+
+    pushl   $(BarLen)
+    pushl   $(BarOffset)
+    pushl   $(BarPhyAddr)
+    call    MemCpy              # Copy function bar to BarPhyAddr. 
+    add     $12, %esp
+
+    # Restore data segment selector to %ds and %es. 
+    mov     $(SelectorData32), %ax
+    mov     %ax, %ds
+    mov     %ax, %es
+
+    # Setup and start paging
+    call    SetupPaging
+
+    # Function call 1, should print "Foo". 
+    lcall   $(SelectorFlatC), $(FuncLinAddr)
+
+    # Change current PDBR from PageDirBase0 to PageDirBase1. 
+    mov    $(PageDirBase1), %eax
+    mov    %eax, %cr3
+
+    # Function call 2, should print "Bar". 
+    lcall   $(SelectorFlatC), $(FuncLinAddr)
+
+    ret
+
+# Function foo, print message "Foo". 
+foo:
+.set    FooOffset, (. - LABEL_SEG_CODE32)
+    mov    $0xc, %ah            # 0000: background black, 1100: font red 
+    mov    $'F', %al
+    mov    %ax, %gs:((80 * 12 + 3) * 2)    # Line 12, column 3 
+    mov    $'o', %al
+    mov    %ax, %gs:((80 * 12 + 4) * 2)    # Line 12, column 4 
+    mov    %ax, %gs:((80 * 12 + 5) * 2)    # Line 12, column 5 
+    lret
+.set    FooLen, (. - foo)
+
+# Function bar, print message "Bar". 
+bar:
+.set    BarOffset, (. - LABEL_SEG_CODE32)
+    mov    $0xc, %ah            # 0000: background black, 1100: font red 
+    mov    $'B', %al
+    mov    %ax, %gs:((80 * 12 + 7) * 2)    # Line 12, column 7 
+    mov    $'a', %al
+    mov    %ax, %gs:((80 * 12 + 8) * 2)    # Line 12, column 8 
+    mov    $'r', %al
+    mov    %ax, %gs:((80 * 12 + 9) * 2)    # Line 12, column 9 
+    lret
+.set    BarLen, (. - bar)
+*/

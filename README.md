@@ -68,3 +68,21 @@ GDT[0x0028]=LDT
 #LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_C + DA_32)
 LABEL_DESC_CODE32:  Descriptor  0x10000,       0xFFFFF, (DA_CR + DA_32)
 需要将定义修改为DA_CR，这样CODE/DATA段才能混用!
+
+2023/9/20
+测试Call Gate
+测试跳到Ring3代码；主要修改VIDEO选择子的权限定义，增加DPL3，表示允许Ring3代码使用屏幕缓存输出字符
+测试在Ring3代码中中通过Call Gate调用实现低权限向高权限转移，需要准备TSS信息供切换
+
+2023/09/21
+测试验证虚拟内存的分页
+
+# GNU 中的org，是偏移多少字节的意思；用于内存布局。
+# 和NASM中的org地址偏移伪指令有本质上的不同。
+
+2023/09/22
+内核编码，设置了交叉编译环境；可直接在Windows中编译elf目标文件。
+
+inline strlen之前需要增加static修饰
+
+分辨率目前还只支持800*600

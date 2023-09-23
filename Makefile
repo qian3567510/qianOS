@@ -3,6 +3,14 @@ TMP = boot.elf loader.elf
 AS = as
 LD = ld
 
+AS = x86_64-unknown-linux-gnu-as
+CC = x86_64-unknown-linux-gnu-gcc
+CXX = x86_64-unknown-linux-gnu-g++
+LD = x86_64-unknown-linux-gnu-ld
+OBJCOPY = x86_64-unknown-linux-gnu-objcopy
+
+OBJCOPY = objcopy
+
 LDFILE_BOOT=boot.lds
 LDFLAGS_BOOT=-T $(LDFILE_BOOT)
 
@@ -12,9 +20,9 @@ LDFLAGS_LOADER=-T $(LDFILE_LOADER)
 TRIM_FLAGS=-j .text -S -O binary
 
 
-TARGET = test.img
+TARGET = qianOS.img
 
-all:$(TARGET)
+all : kernel.bin $(TARGET)
 
 %.o : %.s
 	$(AS) -o $@ $<
@@ -26,17 +34,18 @@ loader.elf: loader_fat12.o
 	$(LD) $< -o $@ $(LDFLAGS_LOADER)
 
 %.bin: %.elf
-	objcopy $(TRIM_FLAGS) $< $@
+	$(OBJCOPY) $(TRIM_FLAGS) $< $@
 
-$(TARGET) : $(OBJS) loader.bin
+kernel.bin:
+	make -C ./kernel
+
+$(TARGET) : $(OBJS) loader.bin kernel.bin
 	imagefs c $@ 2880
 	imagefs b $@ boot.bin
 	imagefs a $@ loader.bin
 	imagefs a $@ kernel.bin
 
 .PHONY: clean
-clean: 
-	del /Q *.o
-	del /Q *.elf
-	del /Q boot.bin loader.bin
-	del /Q $(TARGET)
+clean:
+	make clean -C ./kernel
+	rm -f *.o *.elf *.bin $(TARGET)

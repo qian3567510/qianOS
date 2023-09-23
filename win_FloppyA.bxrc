@@ -1,9 +1,9 @@
-megs:32
+megs:64
 
 romimage:file=$BXSHARE/BIOS-bochs-latest
 vgaromimage:file=$BXSHARE/VGABIOS-lgpl-latest
 
-floppya:1_44=test.img,status=inserted
+floppya:1_44=qianOS.img,status=inserted
 
 boot:floppy
 
