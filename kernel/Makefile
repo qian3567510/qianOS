@@ -10,7 +10,7 @@ CC_FLAGS = -mcmodel=large -m64 -fno-builtin -fno-stack-protector -c
 KERNEL_LD_FLAGS = -b elf64-x86-64 -z muldefs -T Kernel.lds
 
 all: system.elf
-	$(OBJCOPY) -I elf64-x86-64 -S -R ".eh_frame" -R ".comment" -O binary system.elf ../kernel.bin
+	$(OBJCOPY) -I elf64-x86-64 -S -R ".eh_frame" -R ".comment" -O binary system.elf ./kernel.bin
 
 system.elf:	head.o main.o printk.o
 	$(LD) $(KERNEL_LD_FLAGS) -o $@ $^
@@ -27,6 +27,7 @@ main.o:	main.c
 printk.o: printk.c
 	$(CC) $(CC_FLAGS) -o $@ $<
 
+.PHONY:clean
 clean:
 	rm -f *.o *.elf *.bin 
 

@@ -1,51 +1,26 @@
-OBJS = boot.bin 
-TMP = boot.elf loader.elf
-AS = as
-LD = ld
+TARGET = boot.img
 
-AS = x86_64-unknown-linux-gnu-as
-CC = x86_64-unknown-linux-gnu-gcc
-CXX = x86_64-unknown-linux-gnu-g++
-LD = x86_64-unknown-linux-gnu-ld
-OBJCOPY = x86_64-unknown-linux-gnu-objcopy
+all : loader.bin boot.bin kernel.bin $(TARGET)
 
-OBJCOPY = objcopy
+loader.bin:
+	make -C ./bootloader
 
-LDFILE_BOOT=boot.lds
-LDFLAGS_BOOT=-T $(LDFILE_BOOT)
-
-LDFILE_LOADER=loader.lds
-LDFLAGS_LOADER=-T $(LDFILE_LOADER)
-
-TRIM_FLAGS=-j .text -S -O binary
-
-
-TARGET = qianOS.img
-
-all : kernel.bin $(TARGET)
-
-%.o : %.s
-	$(AS) -o $@ $<
-
-boot.elf : boot_fat12.o
-	$(LD) $< -o $@ $(LDFLAGS_BOOT)
-
-loader.elf: loader_fat12.o
-	$(LD) $< -o $@ $(LDFLAGS_LOADER)
-
-%.bin: %.elf
-	$(OBJCOPY) $(TRIM_FLAGS) $< $@
+boot.bin:
+	make -C ./bootloader
 
 kernel.bin:
 	make -C ./kernel
 
-$(TARGET) : $(OBJS) loader.bin kernel.bin
+$(TARGET): boot.bin loader.bin kernel.bin
 	imagefs c $@ 2880
-	imagefs b $@ boot.bin
+	imagefs b $@ ./bootloader/boot.bin
+	cp ./bootloader/loader.bin ./
 	imagefs a $@ loader.bin
+	cp ./kernel/kernel.bin ./
 	imagefs a $@ kernel.bin
 
 .PHONY: clean
 clean:
 	make clean -C ./kernel
-	rm -f *.o *.elf *.bin $(TARGET)
+	make clean -C ./bootloader
+	rm -rf *.bin *.asm~ Makefile~ *.img win_FloppyA.txt

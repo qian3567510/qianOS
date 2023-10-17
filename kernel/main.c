@@ -74,6 +74,8 @@ void Start_Kernel(void)
 
 	color_printk(YELLOW,BLACK,"Welcome\t\t to \t\t qianOS!\n");
 
+	//i = 1/0;			// Make an error to trigger interruput
+
 	while(1)
 		;
 }

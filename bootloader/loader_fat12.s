@@ -70,7 +70,7 @@ GetSVGAModeInfoOKMessage:	.ascii	"Get SVGA Mode Info SUCCESSFUL!"
 #方式1：GDT简易定义法，示例书籍中一般使用此定义法；要点是CODE段基址要同加载地址=CS段地址
 LABEL_GDT: .long 0,0
 LABEL_DESC_CODE32: .long 0x0000FFFF, 0x00CF9A01
-	#段基址 0x00010000  Limit：F FFFF; 004F中的4代表L=1，暂时无意义，9A代表可读可执行代码段		
+	#段基址 0x00 01 0000  Limit：F FFFF; 004F中的4代表L=1，暂时无意义，9A代表可读可执行代码段		
 	#段基址需要显式定义为和Loader加载的段地址一致，=CS<<4
 LABEL_DESC_DATA32: .long 0x0000FFFF, 0x00CF9200
 	#段基址 0x00000000  Limit：F FFFF（5个F）；00CF中的C代表L=1 AVL=1,92代表存在内存中的可读写数据段
@@ -518,7 +518,7 @@ _LoadingFile:
 	# Move Kernel.bin to High address
 	push %cx
 	push %eax							# 起始簇号（来自前序的puch %cs，后续的push %ax），用作GetFATEntry的入参
-	push %fs
+	#push %fs
 	push %edi
 	push %ds
 	push %esi
@@ -548,7 +548,7 @@ _MovKernel:
 	pop %esi
 	pop %ds
 	pop %edi
-	pop %fs
+	#pop %fs
 	pop %eax
 	pop %cx
 	# Move Kernel.bin complete.	
