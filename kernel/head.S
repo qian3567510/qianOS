@@ -47,10 +47,14 @@ _start:
 
 	movq	$0x101000,	%rax
 	movq	%rax,		%cr3
-	movq	switch_seg(%rip),	%rax
-	pushq	$0x08
-	pushq	%rax
-	lretq
+
+	call	switch_seg
+
+	//GNU AS already support call directive
+	//movq	switch_seg(%rip),	%rax
+	//pushq	$0x08
+	//pushq	%rax
+	//lretq
 
 //=======	64-bit mode code
 
@@ -109,10 +113,13 @@ setup_TSS64:
 	mov	$0x40,	%ax
 	ltr	%ax
 
-	movq	go_to_kernel(%rip),	%rax		/* movq address */
-	pushq	$0x08
-	pushq	%rax
-	lretq
+	call Start_Kernel
+
+	//GUN AS already supported call directive
+	//movq	go_to_kernel(%rip),	%rax		/* movq address */
+	//pushq	$0x08
+	//pushq	%rax
+	//lretq
 
 go_to_kernel:
 	.quad	Start_Kernel

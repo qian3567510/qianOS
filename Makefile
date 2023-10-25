@@ -23,4 +23,4 @@ $(TARGET): boot.bin loader.bin kernel.bin
 clean:
 	make clean -C ./kernel
 	make clean -C ./bootloader
-	rm -rf *.bin *.asm~ Makefile~ *.img win_FloppyA.txt
+	rm -rf *.bin *.asm~ Makefile~ *.img bochsout.txt

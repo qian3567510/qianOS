@@ -524,8 +524,10 @@ _LoadingFile:
 	push %esi
 
 	mov $0x0200, %cx
-	mov $BaseOfKernelFile, %ax
-	mov %ax, %fs						# FS段寄存器，之前通过特别手法获得了4G内存寻址能力
+	#mov $0x1000, %cx
+
+	#mov $BaseOfKernelFile, %ax
+	#mov %ax, %fs						# FS段寄存器，之前通过特别手法获得了4G内存寻址能力；在物理环境下不能变更，否则会出错
 	mov (OffsetOfKernelFileCount), %edi	# OffsetOfKernelFileCount 是个临时变量，保存了内存转移过程中的目标地址
 	mov $BaseTmpOfKernelFile, %ax
 	mov %ax, %ds						# 因需要使用绝对内存地址，对DS段寄存器清零
@@ -708,9 +710,14 @@ Label_SVGA_Mode_Info_Finish:
 	mov	$0x4F02, %ax
 #	mov	$0x4180, %bx	#========================mode : 0x180 or 0x143  180 too high
 #	mov $0x0103, %bx	#800×600 256色, 显存地址 0xA0000
-	mov	$0x4143, %bx	#        x 800, y 600, bpp 32, 1920000 bytes visible
-#	mov $0x4144, %bx    #0x4144  x 1024, y 768, bpp 32, 3145728 bytes visible
-						#0x0146 (320*200)
+#	mov	$0x4143, %bx	#        x 800, y 600, bpp 32, 1920000 bytes visible 可用
+#	mov $0x4144, %bx    #0x4144  x 1024, y 768, bpp 32, 3145728 bytes visible 会进入全屏
+	#0x0146 (320*200)
+	#147 ?未知
+	#148 - 14C 1152*864，其中14C 1152*864 可用
+	mov $0x414C, %bx
+#	mov $0x4118, %bx	#gonin fullscreen mode
+#	mov $0x4177, %bx	#gonin fullscreen mode
 	int  $0x10
 
 	cmp	$0x004F, %ax

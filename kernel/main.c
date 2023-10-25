@@ -21,10 +21,27 @@ void Start_Kernel(void)
 	int *addr = (int *)0xffff800000a00000;
 	int i;
 
+	//BX=0x4143, 800*600 32bit
 	//Pos.XResolution = 800;
 	//Pos.YResolution = 600;
-	Pos.XResolution = 800;
-	Pos.YResolution = 600;
+
+	//BX=0x4144, 1024*768 32bit
+	//Going fullscreen mode in Bochs2.7, and very difficult to quit from fullscreen mode!	
+	//Pos.XResolution = 1024;
+	//Pos.YResolution = 768;
+
+	//BX=0x414C, 1152*864 32bit
+	Pos.XResolution = 1152;
+	Pos.YResolution = 864;
+
+	//BX=0x4177, 1280*768 32bit
+	//Going fullscreen mode in Bochs2.7, and very difficult to quit from fullscreen mode!
+	//Pos.XResolution = 1280;
+	//Pos.YResolution = 768;
+
+	//BX=0x4118, 1024*768?
+	//Pos.XResolution = 1024;
+	//Pos.YResolution = 768;
 
 	Pos.XPosition = 0;
 	Pos.YPosition = 0;
